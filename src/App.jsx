@@ -131,15 +131,38 @@ export default function App() {
   const [dimOverride, setDimOverride]   = useState(false)
   const [fullscreen, setFullscreen]     = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [holidays, setHolidays]               = useState([])
 
   const fetchIdRef      = useRef(0)
   const dimWakeTimerRef = useRef(null)
+
+  const HOLIDAY_COLOR = '#F59E0B'
 
   // 1s clock tick
   useEffect(() => {
     const id = setInterval(() => setClock(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
+
+  // Public holidays via Nager.Date (US)
+  useEffect(() => {
+    async function loadHolidays() {
+      try {
+        const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/US`)
+        if (!res.ok) return
+        const data = await res.json()
+        setHolidays(data.map(h => ({
+          id: `holiday_${h.date}`,
+          summary: h.localName,
+          start: { date: h.date },
+          end: { date: h.date },
+          calColor: HOLIDAY_COLOR,
+          calName: 'Holidays',
+        })))
+      } catch { /* ignore */ }
+    }
+    loadHolidays()
+  }, [year])
 
   // Fullscreen state sync
   useEffect(() => {
@@ -234,11 +257,13 @@ export default function App() {
     return () => clearInterval(id)
   }, [fetchEvents])
 
+  const allEvents = useMemo(() => [...events, ...holidays], [events, holidays])
+
   // Next upcoming event today
   const nextUpId = useMemo(() => {
     const now = clock
     const todayStr = now.toISOString().slice(0, 10)
-    return events
+    return allEvents
       .filter(evt =>
         evt.start?.dateTime &&
         new Date(evt.start.dateTime) > now &&
@@ -263,7 +288,7 @@ export default function App() {
       const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
       map.set(dStr, [])
     }
-    events.forEach(evt => {
+    allEvents.forEach(evt => {
       if (hiddenCals.has(evt.calName)) return
       const start = eventStartDate(evt)
       const end   = eventEndDate(evt)
@@ -305,6 +330,14 @@ export default function App() {
             <span className="cal-label">{cal.summary}</span>
           </label>
         ))}
+        {holidays.length > 0 && (
+          <label className="cal-row" onClick={() => toggleCal('Holidays')}>
+            <span className="cal-checkbox" style={{ background: hiddenCals.has('Holidays') ? 'transparent' : HOLIDAY_COLOR, borderColor: HOLIDAY_COLOR }}>
+              {!hiddenCals.has('Holidays') && '✓'}
+            </span>
+            <span className="cal-label">Holidays</span>
+          </label>
+        )}
       </section>
 
       {view === 'month' && selectedDay && (
@@ -411,7 +444,7 @@ export default function App() {
           <main className="cal-main">
             {view === 'week' ? (
               <WeekAgendaView
-                events={events}
+                events={allEvents}
                 hiddenCals={hiddenCals}
                 clock={clock}
                 nextUpId={nextUpId}
